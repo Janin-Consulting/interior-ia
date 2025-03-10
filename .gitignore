@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environnements virtuels
+venv/
+env/
+ENV/
+.env
+.venv
+env.bak/
+venv.bak/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PyTorch
+*.pt
+*.pth
+
+# Fichiers de modèles volumineux
+models/
+*.onnx
+
+# Fichiers d'images générés
+output/
+outputs/
+*_segmentation.png
+*_overlay.png
+*_depth.png
+*_inpainting_mask.png
+*_empty_room.png
+
+# Logs et fichiers temporaires
+*.log
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Fichiers spécifiques au projet
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
+
+# Fichiers de configuration personnels
+config.ini
+secrets.json
