@@ -10,13 +10,18 @@ import time
 logger = logging.getLogger(__name__)
 
 # Liste statique des éléments à conserver (murs, plafond, sol, escaliers, etc.)
+# ELEMENTS_TO_KEEP = {
+#     "wall", "floor;flooring", "ceiling", "stairway;staircase", "stairs;steps",
+#     "escalator;moving;staircase;moving;stairway", "door;double;door", "windowpane;window",
+#     "column;pillar", "railing;rail", "fireplace;hearth;open;fireplace", "shelf",
+#     "light;light;source", "sconce", "painting;picture", "mirror", "cabinet", "sculpture",
+#     "lamp", "television;television;receiver;television;set;tv;tv;set;idiot;box;boob;tube;telly;goggle;box",
+#     "plant;flora;plant;life", "stool"
+# }
 ELEMENTS_TO_KEEP = {
     "wall", "floor;flooring", "ceiling", "stairway;staircase", "stairs;steps",
-    "escalator;moving;staircase;moving;stairway", "door;double;door", "windowpane;window",
-    "column;pillar", "railing;rail", "fireplace;hearth;open;fireplace", "shelf",
-    "light;light;source", "sconce", "painting;picture", "mirror", "cabinet", "sculpture",
-    "lamp", "television;television;receiver;television;set;tv;tv;set;idiot;box;boob;tube;telly;goggle;box",
-    "plant;flora;plant;life", "stool"
+    "door;double;door", "windowpane;window", "column;pillar", "railing;rail",
+    "fireplace;hearth;open;fireplace", "shelf"
 }
 
 def filter_items(

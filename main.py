@@ -313,7 +313,8 @@ def process_single_image(img_path: str, save_dir: str) -> Tuple[str, bool]:
         # Créer un masque d'inpainting
         logger.debug(f"Création du masque d'inpainting pour {img_name}")
         # Convertir le tenseur en numpy une seule fois et sur CPU pour économiser la mémoire GPU
-        seg_np = segmentation.cpu().numpy()
+        #seg_np = segmentation.cpu().numpy()
+        seg_np = segmentation.numpy() if isinstance(segmentation, torch.Tensor) else segmentation
         # Libérer le tenseur GPU dès qu'il est converti en numpy
         del segmentation
         
