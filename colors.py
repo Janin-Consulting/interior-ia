@@ -1,4 +1,169 @@
-COLOR_MAPPING_ = {
+from typing import List, Dict
+
+# Dictionnaires de mappages des codes couleurs hexadécimaux vers les noms de classes/objets
+# Ces dictionnaires sont utilisés pour la segmentation sémantique des images d'intérieur
+
+# Objets triviaux ou extérieurs qui ne sont généralement pas le focus de la décoration intérieure
+TRIVIA: Dict[str, str] = {
+    "#B47878": "building;edifice",
+    "#06E6E6": "sky",
+    "#04C803": "tree",
+    "#8C8C8C": "road;route",
+    "#04FA07": "grass",
+    "#96053D": "person;individual;someone;somebody;mortal;soul",
+    "#CCFF04": "plant;flora;plant;life",
+    "#787846": "earth;ground",
+    "#FF09E0": "house",
+    "#0066C8": "car;auto;automobile;machine;motorcar",
+    "#3DE6FA": "water",
+    "#FF3D06": "railing;rail",
+    "#FF5C00": "arcade;machine",
+    "#FFE000": "stairs;steps",
+    "#00F5FF": "fan",
+    "#FF008F": "step;stair",
+    "#1F00FF": "stairway;staircase",
+    "#FFD600": "radiator",
+}
+
+# Objets décoratifs ou fonctionnels souvent présents dans les intérieurs
+OBJECTS: Dict[str, str] = {
+    "#CC05FF": "bed",
+    "#FF0633": "painting;picture",
+    "#DCDCDC": "mirror",
+    "#00FF14": "box",
+    "#FF0000": "flower",
+    "#FFA300": "book",
+    "#00FFC2": "television;television;receiver;television;set;tv;tv;set;idiot;box;boob;tube;telly;goggle;box",
+    "#F500FF": "pot;flowerpot",
+    "#00FFCC": "vase",
+    "#29FF00": "tray",
+    "#8FFF00": "poster;posting;placard;notice;bill;card",
+    "#5CFF00": "basket;handbasket",
+    "#00ADFF": "screen;door;screen",
+}
+
+# Meubles et objets liés aux sièges et au confort
+SITTING: Dict[str, str] = {
+    "#0B66FF": "sofa;couch;lounge",
+    "#CC4603": "chair",
+    "#07FFE0": "seat",
+    "#08FFD6": "armchair",
+    "#FFC207": "cushion",
+    "#00EBFF": "pillow",
+    "#00D6FF": "stool",
+    "#1400FF": "blanket;cover",
+    "#0A00FF": "swivel;chair",
+    "#FF9900": "ottoman;pouf;pouffe;puff;hassock",
+}
+
+# Éléments d'éclairage
+LIGHTING: Dict[str, str] = {
+    "#E0FF08": "lamp",
+    "#FFAD00": "light;light;source",
+    "#001FFF": "chandelier;pendant;pendent",
+}
+
+# Types de tables
+TABLES: Dict[str, str] = {
+    "#FF0652": "table",
+    "#0AFF47": "desk",
+}
+
+# Meubles de rangement
+CLOSETS: Dict[str, str] = {
+    "#E005FF": "cabinet",
+    "#FF0747": "shelf",
+    "#07FFFF": "wardrobe;closet;press",
+    "#0633FF": "chest;of;drawers;chest;bureau;dresser",
+    "#0000FF": "case;display;case;showcase;vitrine",
+}
+
+# Éléments de salle de bain
+BATHROOM: Dict[str, str] = {
+    "#6608FF": "bathtub;bathing;tub;bath;tub",
+    "#00FF85": "toilet;can;commode;crapper;pot;potty;stool;throne",
+    "#0085FF": "shower",
+    "#FF0066": "towel",
+}
+
+# Fenêtres et accessoires de fenêtres
+WINDOWS: Dict[str, str] = {
+    "#FF3307": "curtain;drape;drapery;mantle;pall",
+    "#E6E6E6": "windowpane;window",
+    "#00FF3D": "awning;sunshade;sunblind",
+    "#003DFF": "blind;screen",
+}
+
+# Éléments de sol
+FLOOR: Dict[str, str] = {
+    "#FF095C": "rug;carpet;carpeting",
+    "#503232": "floor;flooring",
+}
+
+# Structures intérieures principales (murs, plafond, portes)
+INTERIOR: Dict[str, str] = {
+    "#787878": "wall",
+    "#787850": "ceiling",
+    "#08FF33": "door;double;door",
+}
+
+# Éléments de cuisine
+KITCHEN: Dict[str, str] = {
+    "#00FF29": "kitchen;island",
+    "#14FF00": "refrigerator;icebox",
+    "#00A3FF": "sink",
+    "#EB0CFF": "counter",
+    "#D6FF00": "dishwasher;dish;washer;dishwashing;machine",
+    "#FF00EB": "microwave;microwave;oven",
+    "#47FF00": "oven",
+    "#66FF00": "clock",
+    "#00FFB8": "plate",
+    "#19C2C2": "glass;drinking;glass",
+    "#00FF99": "bar",
+    "#00FF0A": "bottle",
+    "#FF7000": "buffet;counter;sideboard",
+    "#B800FF": "washer;automatic;washer;washing;machine",
+    "#00FF70": "coffee;table;cocktail;table",
+    "#008FFF": "countertop",
+    "#33FF00": "stove;kitchen;stove;range;kitchen;range;cooking;stove",
+}
+
+# Éléments de salon
+LIVINGROOM: Dict[str, str] = {
+    "#FA0A0F": "fireplace;hearth;open;fireplace",
+    "#FF4700": "pool;table;billiard;table;snooker;table",
+}
+
+# Éléments de bureau
+OFFICE: Dict[str, str] = {
+    "#00FFAD": "computer;computing;machine;computing;device;data;processor;electronic;computer;information;processing;system",
+    "#00FFF5": "bookcase",
+    "#0633FF": "chest;of;drawers;chest;bureau;dresser",
+    "#005CFF": "monitor;monitoring;device",
+}
+
+# Mapping des catégories d'objets avec leurs dictionnaires de couleurs associés
+# Utilisé pour grouper les objets logiquement dans le traitement de segmentation
+COLOR_MAPPING_CATEGORY_HEX: Dict[str, Dict[str, str]] = {
+    'keep background': {'#FFFFFF': 'background'},
+    'trivia': TRIVIA,
+    'objects': OBJECTS,
+    'sitting': SITTING,
+    'lighting': LIGHTING,
+    'tables': TABLES,
+    'closets': CLOSETS,
+    'bathroom': BATHROOM,
+    'windows': WINDOWS,
+    'floor': FLOOR,
+    'interior': INTERIOR,
+    'kitchen': KITCHEN,
+    'livingroom': LIVINGROOM,
+    'office': OFFICE
+}
+
+# Dictionnaire complet mappant tous les codes couleurs hexadécimaux vers leur classe correspondante
+# Utilisé directement dans le processus de segmentation pour identifier les objets dans l'image
+COLOR_MAPPING_HEX: Dict[str, str] = {
     '#FFFFFF': 'background',
     "#787878": "wall",
     "#B47878": "building;edifice",
@@ -152,16 +317,13 @@ COLOR_MAPPING_ = {
     "#5C00FF": "flag",
 }
 
-def to_rgb(color: str) -> tuple:
-    return tuple(int(color[i:i+2], 16) for i in (1, 3, 5))
-
-COLOR_MAPPING_RGB = {to_rgb(k): v for k, v in COLOR_MAPPING_.items()}
-
-def map_colors_rgb(color: tuple) -> str:
-    return COLOR_MAPPING_RGB[color]
-
-def ade20k_palette() -> list[list[int]]:
-    """ADE20K palette that maps each class to RGB values."""
+def ade20k_palette() -> List[List[int]]:
+    """Palette ADE20K qui mappe chaque classe à des valeurs RGB."""
+    # Fonction qui retourne une liste de listes RGB représentant la palette de couleurs
+    # utilisée par le dataset ADE20K pour la segmentation sémantique.
+    # Chaque sous-liste contient les valeurs [R, G, B] pour une classe spécifique.
+    # Cette palette est utilisée pour visualiser les résultats de segmentation 
+    # ou pour convertir entre différentes représentations de couleurs.
     return [[120, 120, 120], [180, 120, 120], [6, 230, 230], [80, 50, 50],
             [4, 200, 3], [120, 120, 80], [140, 140, 140], [204, 5, 255],
             [230, 230, 230], [4, 250, 7], [224, 5, 255], [235, 255, 7],

@@ -1,13 +1,13 @@
 # Interior-IA : Traitement d'images d'intérieur
 
-Ce projet fournit un ensemble d'outils pour l'analyse et le traitement d'images d'intérieur de maisons, en utilisant des modèles d'intelligence artificielle avancés.
+Ce projet fournit un ensemble d'outils pour la génération et l'amélioration d'images d'intérieur de maisons, en utilisant des modèles d'intelligence artificielle avancés.
 
 ## Fonctionnalités principales
 
-- **Segmentation sémantique** : Identification et classification des objets dans les images d'intérieur en utilisant OneFormer avec le dataset ADE20K
-- **Génération de cartes de profondeur** : Estimation de la profondeur à partir d'images 2D avec le modèle Depth Anything
-- **Création de masques d'inpainting** : Génération automatique de masques pour supprimer les meubles et objets des pièces
-- **Génération de pièces vides** : Suppression des meubles et objets pour créer des versions vides des pièces
+- **Génération d'intérieurs meublés** : Transformation de pièces vides en intérieurs meublés avec ControlNet et modèles de diffusion
+- **Segmentation sémantique** : Utilisée pour identifier les zones à meubler dans les images d'intérieur
+- **Détection de lignes structurelles** : Préservation de l'architecture de la pièce lors de la génération
+- **Upscaling haute résolution** : Amélioration de la qualité des images générées avec un upscaling x4 optimisé
 
 ## Installation
 
@@ -22,100 +22,97 @@ pip install -r requirements.txt
 
 ## Utilisation
 
-### Traitement d'une seule image
+### Génération d'images d'intérieur
 
-Pour traiter une seule image et générer tous les résultats (segmentation, overlay, carte de profondeur et masque d'inpainting) :
-
-```bash
-python main.py --image chemin/vers/votre/image.jpg
-```
-
-### Traitement par lots
-
-Pour traiter plusieurs images en parallèle :
+Pour générer une image d'intérieur meublé à partir d'une pièce vide :
 
 ```bash
-python main.py --input_dir chemin/vers/dossier/images --output_dir outputs --max_workers 4 --batch_size 10
+python predict.py --image empty_room_input/02-salon-sans-logo.png --output result.png --prompt "living room, modern style"
 ```
 
-Paramètres optionnels :
-- `--max_workers` : Nombre maximum de threads parallèles (par défaut : 4)
-- `--batch_size` : Nombre d'images à traiter par lot pour économiser la mémoire (par défaut : 10)
+### Upscaling d'images
+
+Pour améliorer la résolution et la qualité d'une image générée :
+
+```bash
+python upscale.py --image result.png --output result-upscale.png --type interior
+```
+
+### Configuration personnalisée
+
+Chaque module dispose d'un dictionnaire `DEFAULT_CONFIG` pour personnaliser :
+- Les paramètres des modèles d'IA (nombre d'étapes d'inférence, guidance scale, etc.)
+- Les stratégies d'optimisation selon le matériel disponible
+- Les préférences de qualité et de performance
 
 ## Structure du projet
 
-- **main.py** : Script principal pour le traitement d'images et la gestion du flux de travail
-- **segmentation.py** : Fonctions pour la segmentation d'images avec OneFormer
-- **depth.py** : Génération de cartes de profondeur avec Depth Anything
-- **inpainting_mask.py** : Création de masques pour l'inpainting basés sur la segmentation
-- **empty_room.py** : Génération de pièces vides en supprimant les meubles
-- **segmentation_colors.py** : Mappages des couleurs pour la segmentation ADE20K
+- **predict.py** : Module principal pour la génération d'images d'intérieur meublées
+- **upscale.py** : Module d'amélioration de la résolution des images avec traitement par tuiles
+- **colors.py** : Palettes de couleurs et mappages pour la segmentation ADE20K
+- **utils.py** : Fonctions utilitaires pour le traitement d'images et la conversion de formats
+- **monkey_patch.py** : Correctifs pour assurer la compatibilité entre les bibliothèques
+- **palette.py** : Définition des palettes de couleurs pour la visualisation
 
-## Résultats
+## Architecture du code
 
-Pour chaque image traitée, un dossier portant le nom de l'image est créé dans le répertoire `outputs/` avec les fichiers suivants :
+Le projet suit une architecture modulaire avec les caractéristiques suivantes :
 
-- **{nom_image}_segmentation.png** : Image segmentée colorée selon les classes ADE20K
-- **{nom_image}_overlay.png** : Superposition de la segmentation sur l'image originale
-- **{nom_image}_depth.png** : Carte de profondeur en niveaux de gris
-- **{nom_image}_inpainting_mask.png** : Masque pour l'inpainting (blanc pour les zones à remplacer)
-- **{nom_image}_empty_room.png** : Version de la pièce sans meubles générée par inpainting
+- **Séparation des responsabilités** : Chaque module gère une fonctionnalité spécifique
+- **Configuration par défaut** : Dictionnaires `DEFAULT_CONFIG` pour une personnalisation facile
+- **Gestion intelligente des ressources** : Optimisation de l'utilisation mémoire et calcul GPU/CPU
+- **Vectorisation numpy** : Utilisation intensive d'opérations vectorisées pour améliorer les performances
+- **Adaptation GPU/CPU** : Détection automatique et optimisation selon le matériel disponible
+
+## Optimisations récentes
+
+Le projet a été récemment optimisé pour améliorer les performances et la maintenance :
+
+### Améliorations techniques
+- **Configuration flexible** : Introduction de dictionnaires DEFAULT_CONFIG remplaçant les variables globales
+- **Gestion des seeds** : Solution pour le problème "manual_seed expected a long, but got NoneType"
+- **Support CPU/GPU flexible** : Meilleure adaptation à différents types de matériel
+- **Modèle spécialisé** : Utilisation de modèles optimisés pour le design d'intérieur
+
+### Documentation et maintenabilité
+- **Commentaires détaillés** : Documentation en français expliquant chaque étape des processus
+- **Variables explicites** : Renommage pour une meilleure compréhension du code
+- **Gestion d'erreurs améliorée** : Meilleure robustesse face aux différents types d'entrées
 
 ## Modèles utilisés
 
+### Génération d'images
+- **Modèle** : `SG161222/Realistic_Vision_V3.0_VAE` avec ControlNet pour la segmentation et les lignes
+- **ControlNet** : `BertChristiaens/controlnet-seg-room` et `lllyasviel/sd-controlnet-mlsd`
+
 ### Segmentation
+- **Modèle** : `nvidia/segformer-b5-finetuned-ade-640-640` pour la segmentation sémantique
 
-Le projet utilise le modèle OneFormer pré-entraîné sur le dataset ADE20K pour la segmentation sémantique :
-- **Modèle** : `shi-labs/oneformer_ade20k_swin_large`
-- **Classes** : Plus de 150 classes d'objets adaptées aux scènes d'intérieur
+### Upscaling
+- **Modèle** : `stabilityai/stable-diffusion-x4-upscaler` pour l'amélioration de la résolution
 
-### Estimation de profondeur
+## Priorités de développement
 
-Pour l'estimation de profondeur, le projet utilise le modèle Depth Anything :
-- **Modèle** : `LiheYoung/depth-anything-large-hf`
-- **Caractéristiques** : Estimation de profondeur monoculaire de haute qualité
-
-### Inpainting
-
-Pour la génération de pièces vides, le projet utilise un modèle d'inpainting :
-- **Modèle** : `lykon/absolute-reality-1.6525-inpainting`
-- **Caractéristiques** : Inpainting guidé par prompts pour remplacer les meubles par des surfaces vides
-
-## Optimisations
-
-Le projet inclut plusieurs optimisations pour améliorer les performances :
-
-### Optimisations de traitement
-- **Traitement parallèle** : Utilisation de `ThreadPoolExecutor` pour le traitement par lots
-- **Optimisation GPU** : Conversion des modèles en demi-précision sur GPU
-
-### Optimisations de mémoire
-- **Traitement par lots** : Division des grandes collections d'images en lots plus petits pour éviter la surcharge mémoire
-- **Ajustement dynamique des workers** : Adaptation automatique du nombre de workers en fonction de la mémoire GPU disponible
-- **Libération progressive des ressources** : Suppression des objets volumineux dès qu'ils ne sont plus nécessaires
-- **Utilisation de torch.no_grad()** : Réduction de l'empreinte mémoire pendant l'inférence
-- **Nettoyage forcé entre les lots** : Appels explicites à `gc.collect()` et `torch.cuda.empty_cache()`
-- **Surveillance de la mémoire** : Journalisation de l'utilisation de la mémoire GPU pour identifier les fuites
-
-Ces optimisations permettent de traiter efficacement de grands ensembles d'images, même sur des machines avec des ressources GPU limitées.
+1. **Conversion ONNX** : Exportation des modèles vers le format ONNX pour une inférence optimisée
+2. **Pipeline asynchrone** : Implémentation d'une architecture asynchrone pour un meilleur parallélisme
+3. **Vectorisation numpy** : Poursuite de l'optimisation des opérations avec numpy
 
 ## Dépendances principales
 
 - **torch** et **torchvision** : Pour les modèles d'apprentissage profond
 - **transformers** : Pour les modèles pré-entraînés de Hugging Face
-- **diffusers** : Pour les modèles de diffusion utilisés dans l'inpainting
+- **diffusers** : Pour les modèles de diffusion utilisés dans la génération d'images
+- **controlnet-aux** : Pour les modèles ControlNet auxiliaires
 - **PIL** et **opencv-python** : Pour le traitement d'images
-- **numpy** et **scipy** : Pour les calculs numériques
+- **numpy** : Pour les calculs numériques vectorisés
 
 Pour la liste complète des dépendances, voir le fichier `requirements.txt`.
 
-## Performances et limitations
+## Limitations connues
 
-- Les modèles de segmentation fonctionnent mieux sur des images bien éclairées avec des objets clairement visibles
-- L'estimation de profondeur est relative (pas d'échelle métrique absolue) mais précise pour les relations spatiales
-- L'inpainting peut parfois créer des artefacts visuels, surtout dans les zones complexes
-- Les temps de traitement dépendent de la taille des images et des ressources matérielles disponibles
-- **Utilisation de la mémoire** : Avec les optimisations implémentées, le projet peut traiter efficacement des lots importants d'images, mais la mémoire GPU reste un facteur limitant pour les très grands ensembles
+- Les performances dépendent des ressources matérielles disponibles (GPU recommandé)
+- Le temps de traitement varie selon la taille et la complexité des images
+- Les résultats peuvent varier en fonction des prompts utilisés et du contexte de l'image
 
 ## Licence
 
