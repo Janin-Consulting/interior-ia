@@ -1,4 +1,4 @@
-# python predict.py --image empty_room_input/02-salon-sans-logo.png --output result.png --prompt "living room, modern style"
+# python predict.py --image "empty_room_input/WhatsApp Image 2025-03-13 at 10.27.06.jpeg" --output result.png --prompt "living room, modern style" --depth_weight 0.3
 
 import random
 import logging
@@ -15,6 +15,7 @@ from controlnet_aux import MLSDdetector
 from transformers import AutoImageProcessor, SegformerForSemanticSegmentation
 from colors import ade20k_palette
 from utils import map_colors_to_rgb
+from depth import get_depth_map, setup as setup_depth
 
 # Appliquer les monkey patches avant d'importer les modules problématiques
 from monkey_patch import apply_patches
@@ -31,6 +32,7 @@ additional_quality_suffix = None
 seg_image_processor = None
 image_segmentor = None
 mlsd_processor = None
+depth_initialized = False
 
 def filter_items(
     colors_list: Union[List[Tuple[int, int, int]], np.ndarray],
@@ -60,7 +62,7 @@ def filter_items(
 
 def setup() -> None:
     """Charge le modèle en mémoire pour rendre l'exécution de plusieurs prédictions efficace"""
-    global pipe, control_items, additional_quality_suffix, seg_image_processor, image_segmentor, mlsd_processor
+    global pipe, control_items, additional_quality_suffix, seg_image_processor, image_segmentor, mlsd_processor, depth_initialized
     
     controlnet = [
         ControlNetModel.from_pretrained(
@@ -68,6 +70,9 @@ def setup() -> None:
         ),
         ControlNetModel.from_pretrained(
             "lllyasviel/sd-controlnet-mlsd", torch_dtype=torch.float16
+        ),
+        ControlNetModel.from_pretrained(
+            "lllyasviel/sd-controlnet-depth", torch_dtype=torch.float16
         )
     ]
 
@@ -107,6 +112,14 @@ def setup() -> None:
         "nvidia/segformer-b5-finetuned-ade-640-640"
     )
     mlsd_processor = MLSDdetector.from_pretrained("lllyasviel/Annotators")
+    
+    try:
+        setup_depth()
+        depth_initialized = True
+        logger.info("Module d'estimation de profondeur initialisé avec succès")
+    except Exception as e:
+        depth_initialized = False
+        logger.warning(f"Impossible d'initialiser le module de profondeur: {str(e)}")
 
 @torch.inference_mode()
 @torch.autocast("cuda")
@@ -199,6 +212,7 @@ def predict(
     guidance_scale: float = 15,
     prompt_strength: float = 0.8,
     seed: Optional[int] = None,
+    depth_weight: float = 0.3,
 ) -> Image.Image:
     """
     Exécute une prédiction unique pour générer une image d'intérieur meublée
@@ -211,11 +225,12 @@ def predict(
         guidance_scale: Échelle pour le guidage sans classification
         prompt_strength: Force du prompt pour l'inpainting (1.0 = destruction complète de l'information dans l'image)
         seed: Graine aléatoire. Laisser None pour générer une graine aléatoire
+        depth_weight: Poids pour le contrôle de la profondeur (entre 0.0 et 1.0)
         
     Returns:
         PIL.Image.Image: L'image générée
     """
-    global pipe, control_items, additional_quality_suffix, mlsd_processor
+    global pipe, control_items, additional_quality_suffix, mlsd_processor, depth_initialized
     
     # Si aucune seed n'est fournie, en générer une aléatoire
     if seed is None:
@@ -263,22 +278,84 @@ def predict(
     # Prétraitement pour mlsd controlnet
     mlsd_img = mlsd_processor(input_image)
     mlsd_img = mlsd_img.resize(image.size)
-
-    # Générer l'image avec le pipeline d'inpainting
-    generated_image = pipe(
-        prompt=pos_prompt,
-        negative_prompt=negative_prompt,
-        num_inference_steps=num_inference_steps,
-        strength=prompt_strength,
-        guidance_scale=guidance_scale,
-        generator=[torch.Generator(device="cuda").manual_seed(seed)],
-        image=image,
-        mask_image=mask_image,
-        control_image=[segmentation_cond_image, mlsd_img],
-        controlnet_conditioning_scale=[0.4, 0.2],
-        control_guidance_start=[0, 0.1],
-        control_guidance_end=[0.5, 0.25],
-    ).images[0]
+    
+    if depth_initialized:
+        try:
+            logger.info("Génération de la carte de profondeur...")
+            depth_img = get_depth_map(input_image)
+            depth_img = depth_img.resize(image.size)
+            
+            # Définir les poids de contrôle en fonction des caractéristiques de l'image
+            # Calculer le ratio d'aspect pour ajuster les poids
+            aspect_ratio = orig_w / orig_h
+            
+            # Ajuster les poids en fonction du ratio d'aspect
+            seg_weight = 0.4
+            mlsd_weight = 0.2
+            
+            # Si la pièce est très large, augmenter l'importance de la profondeur et des lignes
+            if aspect_ratio > 1.5:
+                seg_weight = 0.35
+                mlsd_weight = 0.25
+                depth_weight = 0.4
+            # Si la pièce est très haute, réduire l'importance des lignes
+            elif aspect_ratio < 0.7:
+                seg_weight = 0.45
+                mlsd_weight = 0.15
+                depth_weight = 0.4
+                
+            logger.info(f"Ratio d'aspect: {aspect_ratio:.2f}, Poids utilisés - Seg: {seg_weight}, MLSD: {mlsd_weight}, Depth: {depth_weight}")
+            
+            # Générer l'image avec le pipeline d'inpainting incluant la profondeur
+            generated_image = pipe(
+                prompt=pos_prompt,
+                negative_prompt=negative_prompt,
+                num_inference_steps=num_inference_steps,
+                strength=prompt_strength,
+                guidance_scale=guidance_scale,
+                generator=[torch.Generator(device="cuda").manual_seed(seed)],
+                image=image,
+                mask_image=mask_image,
+                control_image=[segmentation_cond_image, mlsd_img, depth_img],
+                controlnet_conditioning_scale=[seg_weight, mlsd_weight, depth_weight],
+                control_guidance_start=[0, 0.1, 0.05],
+                control_guidance_end=[0.5, 0.25, 0.6],
+            ).images[0]
+        except Exception as e:
+            logger.warning(f"Erreur lors de l'utilisation de la carte de profondeur: {str(e)}")
+            logger.info("Retour au mode de génération sans carte de profondeur")
+            
+            # Fallback sans la carte de profondeur
+            generated_image = pipe(
+                prompt=pos_prompt,
+                negative_prompt=negative_prompt,
+                num_inference_steps=num_inference_steps,
+                strength=prompt_strength,
+                guidance_scale=guidance_scale,
+                generator=[torch.Generator(device="cuda").manual_seed(seed)],
+                image=image,
+                mask_image=mask_image,
+                control_image=[segmentation_cond_image, mlsd_img],
+                controlnet_conditioning_scale=[0.4, 0.2],
+                control_guidance_start=[0, 0.1],
+                control_guidance_end=[0.5, 0.25],
+            ).images[0]
+    else:
+        # Génération sans la carte de profondeur (méthode originale)
+        generated_image = pipe(
+            prompt=pos_prompt,
+            negative_prompt=negative_prompt,
+            num_inference_steps=num_inference_steps,
+            strength=prompt_strength,
+            guidance_scale=guidance_scale,
+            generator=[torch.Generator(device="cuda").manual_seed(seed)],
+            image=image,
+            mask_image=mask_image,
+            control_image=[segmentation_cond_image, mlsd_img],
+            controlnet_conditioning_scale=[0.4, 0.2],
+            control_guidance_start=[0, 0.1],
+            control_guidance_end=[0.5, 0.25],
+        ).images[0]
 
     # Redimensionner l'image générée aux dimensions originales
     out_img = generated_image.resize(
@@ -302,6 +379,7 @@ if __name__ == "__main__":
     parser.add_argument('--guidance_scale', type=float, default=15, help='Échelle pour le guidage sans classification')
     parser.add_argument('--prompt_strength', type=float, default=0.8, help='Force du prompt pour l\'inpainting')
     parser.add_argument('--seed', type=int, default=None, help='Graine aléatoire')
+    parser.add_argument('--depth_weight', type=float, default=0.3, help='Poids pour le contrôle de la profondeur')
     parser.add_argument('--output', type=str, default="output.png", help='Chemin du fichier de sortie')
     
     args = parser.parse_args()
@@ -323,7 +401,8 @@ if __name__ == "__main__":
             num_inference_steps=args.num_inference_steps,
             guidance_scale=args.guidance_scale,
             prompt_strength=args.prompt_strength,
-            seed=args.seed
+            seed=args.seed,
+            depth_weight=args.depth_weight
         )
         
         # Sauvegarder l'image générée
