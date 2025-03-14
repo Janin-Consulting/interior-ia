@@ -18,10 +18,11 @@ apply_patches()
 from diffusers import ControlNetModel, UniPCMultistepScheduler
 from diffusers.pipelines.controlnet import StableDiffusionControlNetInpaintPipeline
 from transformers import AutoImageProcessor, SegformerForSemanticSegmentation
+from controlnet_aux import MLSDdetector
+
 from colors import ade20k_palette
 from utils import map_colors_to_rgb
 from depth import get_depth_map, setup as setup_depth
-from controlnet_aux import MLSDdetector
 
 # Configuration du logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -34,7 +35,6 @@ additional_quality_suffix = None
 seg_image_processor = None
 image_segmentor = None
 mlsd_processor = None
-depth_initialized = False
 
 def filter_items(
     colors_list: Union[List[Tuple[int, int, int]], np.ndarray],
@@ -64,19 +64,17 @@ def filter_items(
 
 def setup() -> None:
     """Charge le modèle en mémoire pour rendre l'exécution de plusieurs prédictions efficace"""
-    global pipe, control_items, additional_quality_suffix, seg_image_processor, image_segmentor, mlsd_processor, depth_initialized
+    global pipe, control_items, additional_quality_suffix, seg_image_processor, image_segmentor, mlsd_processor
     
-    # Initialiser le module de profondeur d'abord
+    # Initialiser le module de profondeur
     try:
         setup_depth()
-        depth_initialized = True
         logger.info("Module d'estimation de profondeur initialisé avec succès")
     except Exception as e:
-        depth_initialized = False
         logger.warning(f"Impossible d'initialiser le module de profondeur: {str(e)}")
-        logger.warning("Nous allons tout de même utiliser le ControlNet de profondeur avec une carte de profondeur de secours")
+        logger.warning("Le ControlNet de profondeur sera utilisé avec une carte de profondeur de secours")
     
-    # Toujours initialiser les 3 ControlNets
+    # Initialiser les 3 ControlNets
     logger.info("Initialisation des 3 ControlNets (segmentation, MLSD, profondeur)")
     controlnet = [
         ControlNetModel.from_pretrained(
@@ -120,10 +118,8 @@ def setup() -> None:
     
     try:
         setup_depth()
-        depth_initialized = True
         logger.info("Module d'estimation de profondeur initialisé avec succès")
     except Exception as e:
-        depth_initialized = False
         logger.warning(f"Impossible d'initialiser le module de profondeur: {str(e)}")
 
 @torch.inference_mode()
@@ -230,12 +226,12 @@ def predict(
         guidance_scale: Échelle pour le guidage sans classification
         prompt_strength: Force du prompt pour l'inpainting (1.0 = destruction complète de l'information dans l'image)
         seed: Graine aléatoire. Laisser None pour générer une graine aléatoire
-        depth_weight: Poids pour le contrôle de la profondeur (entre 0.0 et 1.0)
+        depth_weight: Poids de la profondeur pour ControlNet (entre 0.0 et 1.0)
         
     Returns:
         PIL.Image.Image: L'image générée
     """
-    global pipe, control_items, additional_quality_suffix, mlsd_processor, depth_initialized
+    global pipe, control_items, additional_quality_suffix, mlsd_processor
     
     # Si aucune seed n'est fournie, en générer une aléatoire
     if seed is None:
@@ -284,87 +280,63 @@ def predict(
     mlsd_img = mlsd_processor(input_image)
     mlsd_img = mlsd_img.resize(image.size)
     
-    if depth_initialized:
-        try:
-            logger.info("Génération de la carte de profondeur...")
-            depth_img = get_depth_map(input_image)
-            depth_img = depth_img.resize(image.size)
-            
-            # Définir les poids de contrôle en fonction des caractéristiques de l'image
-            # Calculer le ratio d'aspect pour ajuster les poids
-            aspect_ratio = orig_w / orig_h
-            
-            # Ajuster les poids en fonction du ratio d'aspect
-            seg_weight = 0.4
-            mlsd_weight = 0.2
-            
-            # Si la pièce est très large, augmenter l'importance de la profondeur et des lignes
-            if aspect_ratio > 1.5:
-                seg_weight = 0.35
-                mlsd_weight = 0.25
-                depth_weight = 0.4
-            # Si la pièce est très haute, réduire l'importance des lignes
-            elif aspect_ratio < 0.7:
-                seg_weight = 0.45
-                mlsd_weight = 0.15
-                depth_weight = 0.4
-                
-            logger.info(f"Ratio d'aspect: {aspect_ratio:.2f}, Poids utilisés - Seg: {seg_weight}, MLSD: {mlsd_weight}, Depth: {depth_weight}")
-            
-            # Générer l'image avec le pipeline d'inpainting incluant la profondeur
-            generated_image = pipe(
-                prompt=pos_prompt,
-                negative_prompt=negative_prompt,
-                num_inference_steps=num_inference_steps,
-                strength=prompt_strength,
-                guidance_scale=guidance_scale,
-                generator=[torch.Generator(device="cuda").manual_seed(seed)],
-                image=image,
-                mask_image=mask_image,
-                control_image=[segmentation_cond_image, mlsd_img, depth_img],
-                controlnet_conditioning_scale=[seg_weight, mlsd_weight, depth_weight],
-                control_guidance_start=[0, 0.1, 0.05],
-                control_guidance_end=[0.5, 0.25, 0.6],
-            ).images[0]
-            
-            logger.info("Génération avec profondeur réussie")
-        except Exception as e:
-            logger.warning(f"Erreur lors de l'utilisation de la carte de profondeur: {str(e)}")
-            logger.info("Retour au mode de génération sans carte de profondeur")
-            
-            # Fallback sans la carte de profondeur
-            generated_image = pipe(
-                prompt=pos_prompt,
-                negative_prompt=negative_prompt,
-                num_inference_steps=num_inference_steps,
-                strength=prompt_strength,
-                guidance_scale=guidance_scale,
-                generator=[torch.Generator(device="cuda").manual_seed(seed)],
-                image=image,
-                mask_image=mask_image,
-                control_image=[segmentation_cond_image, mlsd_img],
-                controlnet_conditioning_scale=[0.4, 0.2],
-                control_guidance_start=[0, 0.1],
-                control_guidance_end=[0.5, 0.25],
-            ).images[0]
+    # Générer une carte de profondeur
+    logger.info("Génération de la carte de profondeur...")
+    depth_img = get_depth_map(image)
+    
+    # Calculer les poids optimaux des ControlNets en fonction du ratio d'aspect de l'image
+    aspect_ratio = orig_w / orig_h
+    
+    # Valeurs par défaut pour segmentation et MLSD
+    seg_weight = 0.4
+    mlsd_weight = 0.2
+    
+    # Respecter le paramètre depth_weight fourni par l'utilisateur, le limiter entre 0.1 et 0.5
+    user_depth_weight = max(0.1, min(0.5, depth_weight))
+    
+    # Ajuster les poids selon le ratio d'aspect, tout en préservant l'intention de l'utilisateur
+    if aspect_ratio > 1.5:
+        # Pièce large : augmenter légèrement l'importance des lignes et de la profondeur
+        seg_weight = 0.35
+        mlsd_weight = 0.25
+        # Augmenter la profondeur si l'utilisateur n'a pas explicitement choisi une valeur faible
+        if depth_weight >= 0.3:
+            depth_weight = max(user_depth_weight, 0.4)
+        else:
+            depth_weight = user_depth_weight
+    elif aspect_ratio < 0.7:
+        # Pièce haute : réduire l'importance des lignes
+        seg_weight = 0.45
+        mlsd_weight = 0.15
+        # Augmenter la profondeur si l'utilisateur n'a pas explicitement choisi une valeur faible
+        if depth_weight >= 0.3:
+            depth_weight = max(user_depth_weight, 0.4) 
+        else:
+            depth_weight = user_depth_weight
     else:
-        # Mode sans profondeur (2 ControlNets seulement)
-        logger.info("Génération sans profondeur (non disponible)")
-        generated_image = pipe(
-            prompt=pos_prompt,
-            negative_prompt=negative_prompt,
-            num_inference_steps=num_inference_steps,
-            strength=prompt_strength,
-            guidance_scale=guidance_scale,
-            generator=[torch.Generator(device="cuda").manual_seed(seed)],
-            image=image,
-            mask_image=mask_image,
-            control_image=[segmentation_cond_image, mlsd_img],
-            controlnet_conditioning_scale=[0.4, 0.2],
-            control_guidance_start=[0, 0.1],
-            control_guidance_end=[0.5, 0.25],
-        ).images[0]
-
+        # Ratio normal : utiliser le poids de profondeur spécifié par l'utilisateur
+        depth_weight = user_depth_weight
+    
+    logger.info(f"Ratio d'aspect: {aspect_ratio:.2f}, Poids utilisés - Seg: {seg_weight}, MLSD: {mlsd_weight}, Depth: {depth_weight}")
+    
+    # Génération avec les 3 ControlNets (toujours)
+    generated_image = pipe(
+        prompt=pos_prompt,
+        negative_prompt=negative_prompt,
+        num_inference_steps=num_inference_steps,
+        strength=prompt_strength,
+        guidance_scale=guidance_scale,
+        generator=[torch.Generator(device="cuda").manual_seed(seed)],
+        image=image,
+        mask_image=mask_image,
+        control_image=[segmentation_cond_image, mlsd_img, depth_img],
+        controlnet_conditioning_scale=[seg_weight, mlsd_weight, depth_weight],
+        control_guidance_start=[0, 0.1, 0.05],
+        control_guidance_end=[0.5, 0.25, 0.6],
+    ).images[0]
+    
+    logger.info("Génération avec les 3 ControlNets réussie")
+    
     # Redimensionner l'image générée aux dimensions originales
     out_img = generated_image.resize(
         (orig_w, orig_h), Image.Resampling.LANCZOS

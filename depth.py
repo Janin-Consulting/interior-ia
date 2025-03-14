@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from PIL import Image
 from typing import Optional, Tuple, Union, List
-from transformers import AutoImageProcessor, AutoModelForDepthEstimation, DPTForDepthEstimation, DPTImageProcessor
+from transformers import DPTForDepthEstimation, DPTImageProcessor
 import torch.nn.functional as F
 
 # Configuration du logger
@@ -27,8 +27,6 @@ def setup() -> None:
     
     # Utiliser directement MiDaS comme modèle principal, puisqu'il fonctionne bien
     try:
-        from transformers import DPTForDepthEstimation, DPTImageProcessor
-        
         # Utiliser MiDaS qui est plus stable et plus largement disponible
         depth_image_processor = DPTImageProcessor.from_pretrained("Intel/dpt-hybrid-midas")
         depth_model = DPTForDepthEstimation.from_pretrained("Intel/dpt-hybrid-midas")
@@ -89,21 +87,12 @@ def get_depth_map(image: Image.Image) -> Image.Image:
         
         # Obtenir la carte de profondeur du modèle en adaptant selon le type de modèle
         with torch.no_grad():
-            # Détection du type de modèle et adaptation en conséquence
-            if "DPT" in depth_model.__class__.__name__:
-                # Cas du modèle MiDaS
-                depth_map = depth_model(**inputs).predicted_depth
+            # Pour modèle MiDaS
+            depth_map = depth_model(**inputs).predicted_depth
                 
-                # Normalisation spécifique pour MiDaS
-                depth_min, depth_max = torch.min(depth_map), torch.max(depth_map)
-                depth_map = (depth_map - depth_min) / (depth_max - depth_min)
-            else:
-                # Cas par défaut (depth-anything)
-                depth_map = depth_model(**inputs).predicted_depth
-                
-                # Normalisation standard
-                depth_min, depth_max = torch.min(depth_map), torch.max(depth_map)
-                depth_map = (depth_map - depth_min) / (depth_max - depth_min)
+            # Normalisation
+            depth_min, depth_max = torch.min(depth_map), torch.max(depth_map)
+            depth_map = (depth_map - depth_min) / (depth_max - depth_min)
         
         # Redimensionner la carte de profondeur aux dimensions de l'image d'origine
         depth_map = F.interpolate(
@@ -150,27 +139,27 @@ def enhance_depth(depth_image: Image.Image, gamma: float = 1.0, contrast: float 
     """Améliore la carte de profondeur pour une meilleure utilisation avec ControlNet
     
     Args:
-        depth_image (PIL.Image.Image): La carte de profondeur générée
-        gamma (float): Facteur gamma pour améliorer certaines zones (>1 accentue les zones sombres)
-        contrast (float): Facteur de contraste pour améliorer la différence entre zones
+        depth_image (PIL.Image.Image): La carte de profondeur à améliorer
+        gamma (float, optional): Correction gamma à appliquer. Défaut à 1.0.
+        contrast (float, optional): Ajustement de contraste à appliquer. Défaut à 1.0.
         
     Returns:
         PIL.Image.Image: La carte de profondeur améliorée
     """
-    # Convertir en tableau numpy
+    # Convertir en array numpy
     depth_np = np.array(depth_image).astype(np.float32) / 255.0
     
-    # Appliquer la correction gamma
+    # Appliquer correction gamma
     if gamma != 1.0:
         depth_np = np.power(depth_np, gamma)
     
-    # Appliquer l'ajustement de contraste
+    # Appliquer ajustement de contraste
     if contrast != 1.0:
         mean_val = np.mean(depth_np)
         depth_np = (depth_np - mean_val) * contrast + mean_val
+        depth_np = np.clip(depth_np, 0.0, 1.0)
     
-    # Recadrer les valeurs et convertir en image
-    depth_np = np.clip(depth_np * 255.0, 0, 255).astype(np.uint8)
-    enhanced_depth = Image.fromarray(depth_np)
+    # Reconvertir en image PIL
+    enhanced_depth = (depth_np * 255.0).astype(np.uint8)
     
-    return enhanced_depth
+    return Image.fromarray(enhanced_depth)
