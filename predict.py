@@ -1,4 +1,4 @@
-# python predict.py --image "empty_room_input/WhatsApp Image 2025-03-13 at 10.27.06.jpeg" --output result.png --prompt "living room, modern style" --depth_weight 0.3
+# python predict.py --image "empty_room_input/image.png" --output result.png --prompt "living room, modern style" --depth_weight 0.3
 
 import random
 import logging
@@ -8,18 +8,19 @@ import numpy as np
 from typing import Tuple, Union, List, Optional
 from pathlib import Path
 from PIL import Image
-from diffusers import ControlNetModel
-from diffusers.pipelines.controlnet import StableDiffusionControlNetInpaintPipeline
+
+# Créer un fichier monkey_patch pour gérer les imports problématiques
+from monkey_patch import apply_patches
+apply_patches()
+
+# Imports des bibliothèques principales après l'application des monkey patches
 from diffusers import ControlNetModel, UniPCMultistepScheduler
-from controlnet_aux import MLSDdetector
+from diffusers.pipelines.controlnet import StableDiffusionControlNetInpaintPipeline
 from transformers import AutoImageProcessor, SegformerForSemanticSegmentation
 from colors import ade20k_palette
 from utils import map_colors_to_rgb
 from depth import get_depth_map, setup as setup_depth
-
-# Appliquer les monkey patches avant d'importer les modules problématiques
-from monkey_patch import apply_patches
-apply_patches()
+from controlnet_aux import MLSDdetector
 
 # Configuration du logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -64,17 +65,39 @@ def setup() -> None:
     """Charge le modèle en mémoire pour rendre l'exécution de plusieurs prédictions efficace"""
     global pipe, control_items, additional_quality_suffix, seg_image_processor, image_segmentor, mlsd_processor, depth_initialized
     
-    controlnet = [
-        ControlNetModel.from_pretrained(
-            "BertChristiaens/controlnet-seg-room", torch_dtype=torch.float16
-        ),
-        ControlNetModel.from_pretrained(
-            "lllyasviel/sd-controlnet-mlsd", torch_dtype=torch.float16
-        ),
-        ControlNetModel.from_pretrained(
-            "lllyasviel/sd-controlnet-depth", torch_dtype=torch.float16
-        )
-    ]
+    # Initialiser le module de profondeur d'abord
+    try:
+        setup_depth()
+        depth_initialized = True
+        logger.info("Module d'estimation de profondeur initialisé avec succès")
+    except Exception as e:
+        depth_initialized = False
+        logger.warning(f"Impossible d'initialiser le module de profondeur: {str(e)}")
+    
+    # Charger les controlnets en fonction de la disponibilité de la profondeur
+    if depth_initialized:
+        logger.info("Initialisation des 3 ControlNets (segmentation, MLSD, profondeur)")
+        controlnet = [
+            ControlNetModel.from_pretrained(
+                "BertChristiaens/controlnet-seg-room", torch_dtype=torch.float16
+            ),
+            ControlNetModel.from_pretrained(
+                "lllyasviel/sd-controlnet-mlsd", torch_dtype=torch.float16
+            ),
+            ControlNetModel.from_pretrained(
+                "lllyasviel/sd-controlnet-depth", torch_dtype=torch.float16
+            )
+        ]
+    else:
+        logger.info("Initialisation des 2 ControlNets (segmentation, MLSD) sans profondeur")
+        controlnet = [
+            ControlNetModel.from_pretrained(
+                "BertChristiaens/controlnet-seg-room", torch_dtype=torch.float16
+            ),
+            ControlNetModel.from_pretrained(
+                "lllyasviel/sd-controlnet-mlsd", torch_dtype=torch.float16
+            )
+        ]
 
     pipe = StableDiffusionControlNetInpaintPipeline.from_pretrained(
         "SG161222/Realistic_Vision_V3.0_VAE",
@@ -321,6 +344,8 @@ def predict(
                 control_guidance_start=[0, 0.1, 0.05],
                 control_guidance_end=[0.5, 0.25, 0.6],
             ).images[0]
+            
+            logger.info("Génération avec profondeur réussie")
         except Exception as e:
             logger.warning(f"Erreur lors de l'utilisation de la carte de profondeur: {str(e)}")
             logger.info("Retour au mode de génération sans carte de profondeur")
@@ -341,7 +366,8 @@ def predict(
                 control_guidance_end=[0.5, 0.25],
             ).images[0]
     else:
-        # Génération sans la carte de profondeur (méthode originale)
+        # Mode sans profondeur (2 ControlNets seulement)
+        logger.info("Génération sans profondeur (non disponible)")
         generated_image = pipe(
             prompt=pos_prompt,
             negative_prompt=negative_prompt,

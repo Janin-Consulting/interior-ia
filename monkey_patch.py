@@ -85,3 +85,80 @@ def apply_patches():
             logger.info("Patched: diffusers.utils.dynamic_modules_utils imports")
     except Exception as e:
         logger.warning(f"Erreur lors du patch de diffusers: {str(e)}")
+    
+    # Patch pour les avertissements de timm
+    try:
+        # Vérifier si timm est installé
+        if find_spec("timm"):
+            # Importer les modules nécessaires de timm d'abord
+            # Cela permet de s'assurer que les imports se font dans le bon ordre
+            import timm.layers
+            import timm.models
+            
+            # Patcher les imports dépréciés pour rediriger vers les bons chemins
+            import sys
+            
+            # Créer un module fantôme timm.models.layers qui redirige vers timm.layers
+            if "timm.models.layers" in sys.modules:
+                # Si le module est déjà importé, on le met à jour
+                sys.modules["timm.models.layers"].__dict__.update(timm.layers.__dict__)
+            else:
+                # Sinon on crée un nouveau module qui est simplement une référence à timm.layers
+                import types
+                layers_module = types.ModuleType("timm.models.layers")
+                layers_module.__dict__.update(timm.layers.__dict__)
+                sys.modules["timm.models.layers"] = layers_module
+            
+            # Même chose pour timm.models.registry
+            if "timm.models.registry" in sys.modules:
+                sys.modules["timm.models.registry"].__dict__.update(timm.models.__dict__)
+            else:
+                import types
+                registry_module = types.ModuleType("timm.models.registry")
+                registry_module.__dict__.update(timm.models.__dict__)
+                sys.modules["timm.models.registry"] = registry_module
+            
+            logger.info("Patched: timm imports dépréciés redirigés vers les nouveaux modules")
+    except Exception as e:
+        logger.warning(f"Erreur lors du patch de timm: {str(e)}")
+    
+    # Patch pour les avertissements de controlnet_aux et les conflits de registre
+    try:
+        # Vérifier si controlnet_aux est installé
+        if find_spec("controlnet_aux"):
+            # Importer les modules nécessaires
+            import controlnet_aux
+            
+            # Patcher la méthode de register_model pour éviter les warnings de réécriture
+            # Ce patch doit être appliqué avant que controlnet_aux ne soit importé
+            import timm.models as timm_models
+            
+            if hasattr(timm_models, "register_model"):
+                # Sauvegarder la fonction originale
+                original_register_model = timm_models.register_model
+                
+                # Créer une fonction wrapper qui ignore silencieusement les réécritures
+                def patched_register_model(fn_or_name):
+                    if callable(fn_or_name):
+                        # Cas normal d'utilisation comme décorateur
+                        model_name = fn_or_name.__name__
+                        if model_name in timm_models._model_entrypoints:
+                            # Le modèle existe déjà, on le retourne simplement sans warning
+                            return fn_or_name
+                        return original_register_model(fn_or_name)
+                    else:
+                        # Cas d'utilisation avec un nom spécifié
+                        def wrap_register_model(fn):
+                            if fn_or_name in timm_models._model_entrypoints:
+                                # Le modèle existe déjà, on le retourne simplement sans warning
+                                return fn
+                            return original_register_model(fn_or_name)(fn)
+                        return wrap_register_model
+                
+                # Remplacer la fonction originale par notre version patchée
+                timm_models.register_model = patched_register_model
+                logger.info("Patched: timm.models.register_model pour éviter les conflits de registre")
+    except Exception as e:
+        logger.warning(f"Erreur lors du patch de controlnet_aux: {str(e)}")
+    
+    logger.info("Tous les patches ont été appliqués avec succès")

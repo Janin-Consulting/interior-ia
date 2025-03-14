@@ -1,10 +1,9 @@
-
 import logging
 import torch
 import numpy as np
 from PIL import Image
 from typing import Optional, Tuple, Union, List
-from transformers import AutoImageProcessor, AutoModelForDepthEstimation
+from transformers import AutoImageProcessor, AutoModelForDepthEstimation, DPTForDepthEstimation, DPTImageProcessor
 import torch.nn.functional as F
 
 # Configuration du logger
@@ -14,6 +13,8 @@ logger = logging.getLogger(__name__)
 # Variables globales pour stocker les modèles et processeurs
 depth_image_processor = None
 depth_model = None
+depth_min = 0.0
+depth_max = 1.0
 
 def setup() -> None:
     """Initialise les modèles d'estimation de profondeur
@@ -25,35 +26,50 @@ def setup() -> None:
     
     logger.info("Initialisation du modèle d'estimation de profondeur...")
     
-    # Chargement du processeur d'image et du modèle pour l'estimation de profondeur
-    depth_image_processor = AutoImageProcessor.from_pretrained(
-        "LiheYoung/depth-anything-large-hf", 
-        torch_dtype=torch.float16
-    )
-    
-    depth_model = AutoModelForDepthEstimation.from_pretrained(
-        "LiheYoung/depth-anything-large-hf", 
-        torch_dtype=torch.float16
-    )
+    # Essayer d'abord le modèle depth-anything (haute qualité)
+    try:
+        # Chargement du processeur d'image et du modèle pour l'estimation de profondeur
+        depth_image_processor = AutoImageProcessor.from_pretrained(
+            "LiheYoung/depth-anything-large-hf", 
+            torch_dtype=torch.float16
+        )
+        
+        depth_model = AutoModelForDepthEstimation.from_pretrained(
+            "LiheYoung/depth-anything-large-hf", 
+            torch_dtype=torch.float16
+        )
+        
+        logger.info("Modèle depth-anything-large chargé avec succès")
+    except Exception as e:
+        logger.warning(f"Erreur lors du chargement de depth-anything: {str(e)}")
+        
+        # Essayer un modèle alternatif plus léger et plus largement disponible
+        try:
+            logger.info("Tentative de chargement du modèle MiDaS comme alternative...")
+            from transformers import DPTForDepthEstimation, DPTImageProcessor
+            
+            # Utiliser MiDaS (plus commun et présent dans plus d'environnements)
+            depth_image_processor = DPTImageProcessor.from_pretrained("Intel/dpt-hybrid-midas")
+            depth_model = DPTForDepthEstimation.from_pretrained("Intel/dpt-hybrid-midas")
+            
+            logger.info("Modèle MiDaS chargé avec succès comme alternative")
+        except Exception as e2:
+            logger.error(f"Impossible de charger un modèle de profondeur alternatif: {str(e2)}")
+            raise RuntimeError("depth_anything") from e2
     
     # Déplacer le modèle sur GPU si disponible
     if torch.cuda.is_available():
         depth_model = depth_model.to("cuda")
         
-        # Tenter d'activer les optimisations xformers si disponibles
-        try:
-            logger.info("Tentative d'activation des optimisations xformers pour l'estimation de profondeur...")
-            # Note: Depth-Anything ne prend pas directement en charge xformers, mais nous ajoutons
-            # cette structure au cas où une future version le prendrait en charge
-            if hasattr(depth_model, 'enable_xformers_memory_efficient_attention'):
-                depth_model.enable_xformers_memory_efficient_attention()
-                logger.info("Optimisations xformers activées avec succès pour l'estimation de profondeur")
-        except (ModuleNotFoundError, ImportError):
-            logger.warning("xformers n'est pas disponible, utilisation de l'attention standard pour l'estimation de profondeur")
-        except Exception as e:
-            logger.warning(f"Impossible d'activer xformers pour l'estimation de profondeur: {str(e)}")
-    else:
-        logger.warning("CUDA n'est pas disponible. L'inférence sera beaucoup plus lente sur CPU.")
+    # Essayer d'activer xformers pour les optimisations de mémoire (si disponible)
+    try:
+        import xformers
+        logger.info("xformers détecté, activation des optimisations de mémoire")
+        depth_model.enable_xformers_memory_efficient_attention()
+    except (ImportError, AttributeError) as e:
+        logger.info(f"xformers non disponible ({str(e)}), utilisation de l'attention standard")
+        # Utiliser l'attention slicing comme alternative si xformers n'est pas disponible
+        depth_model.enable_attention_slicing()
 
 @torch.inference_mode()
 @torch.autocast("cuda")
@@ -66,12 +82,11 @@ def get_depth_map(image: Image.Image) -> Image.Image:
     Returns:
         PIL.Image.Image: La carte de profondeur générée, convertie en image RGB
     """
-    global depth_image_processor, depth_model
+    global depth_min, depth_max
     
-    # Vérifier si les modèles sont chargés
-    if depth_image_processor is None or depth_model is None:
-        logger.info("Chargement des modèles d'estimation de profondeur...")
-        setup()
+    # Vérification de l'initialisation
+    if depth_model is None or depth_image_processor is None:
+        raise RuntimeError("Le module de profondeur n'a pas été initialisé. Appelez setup() d'abord.")
     
     # S'assurer que l'image est dans le format RGB requis
     if not isinstance(image, Image.Image):
@@ -92,13 +107,27 @@ def get_depth_map(image: Image.Image) -> Image.Image:
         width, height = image.size
         inputs = depth_image_processor(images=image, return_tensors="pt")
         
-        # Déplacer les entrées sur le même appareil que le modèle
+        # Déplacer sur GPU si disponible
         if torch.cuda.is_available():
             inputs = {k: v.to("cuda") for k, v in inputs.items()}
         
-        # Obtenir la carte de profondeur
+        # Obtenir la carte de profondeur du modèle
         with torch.no_grad():
-            depth_map = depth_model(**inputs).predicted_depth
+            # Détection du type de modèle et adaptation en conséquence
+            if "DPT" in depth_model.__class__.__name__:
+                # Cas du modèle MiDaS
+                depth_map = depth_model(**inputs).predicted_depth
+                
+                # Normalisation spécifique pour MiDaS
+                depth_min, depth_max = torch.min(depth_map), torch.max(depth_map)
+                depth_map = (depth_map - depth_min) / (depth_max - depth_min)
+            else:
+                # Cas par défaut (depth-anything)
+                depth_map = depth_model(**inputs).predicted_depth
+                
+                # Normalisation standard
+                depth_min, depth_max = torch.min(depth_map), torch.max(depth_map)
+                depth_map = (depth_map - depth_min) / (depth_max - depth_min)
         
         # Redimensionner la carte de profondeur aux dimensions de l'image d'origine
         depth_map = F.interpolate(
@@ -107,11 +136,6 @@ def get_depth_map(image: Image.Image) -> Image.Image:
             mode="bicubic",
             align_corners=False,
         )
-        
-        # Normaliser la carte de profondeur
-        depth_min = torch.amin(depth_map, dim=[1, 2, 3], keepdim=True)
-        depth_max = torch.amax(depth_map, dim=[1, 2, 3], keepdim=True)
-        depth_map = (depth_map - depth_min) / (depth_max - depth_min)
         
         # Convertir en RGB en répétant la carte sur 3 canaux
         depth_rgb = torch.cat([depth_map] * 3, dim=1)
