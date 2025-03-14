@@ -73,6 +73,7 @@ def setup() -> None:
     except Exception as e:
         depth_initialized = False
         logger.warning(f"Impossible d'initialiser le module de profondeur: {str(e)}")
+        # Ne pas propager l'erreur, nous allons continuer sans profondeur
     
     # Charger les controlnets en fonction de la disponibilité de la profondeur
     if depth_initialized:
