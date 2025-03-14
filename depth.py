@@ -19,43 +19,24 @@ depth_max = 1.0
 def setup() -> None:
     """Initialise les modèles d'estimation de profondeur
     
-    Cette fonction charge le modèle Depth-Anything pour l'estimation de profondeur.
-    Elle gère également les optimisations comme xformers si disponible.
+    Cette fonction charge le modèle MiDaS pour l'estimation de profondeur.
     """
     global depth_image_processor, depth_model
     
     logger.info("Initialisation du modèle d'estimation de profondeur...")
     
-    # Essayer d'abord le modèle depth-anything (haute qualité)
+    # Utiliser directement MiDaS comme modèle principal, puisqu'il fonctionne bien
     try:
-        # Chargement du processeur d'image et du modèle pour l'estimation de profondeur
-        depth_image_processor = AutoImageProcessor.from_pretrained(
-            "LiheYoung/depth-anything-large-hf", 
-            torch_dtype=torch.float16
-        )
+        from transformers import DPTForDepthEstimation, DPTImageProcessor
         
-        depth_model = AutoModelForDepthEstimation.from_pretrained(
-            "LiheYoung/depth-anything-large-hf", 
-            torch_dtype=torch.float16
-        )
+        # Utiliser MiDaS qui est plus stable et plus largement disponible
+        depth_image_processor = DPTImageProcessor.from_pretrained("Intel/dpt-hybrid-midas")
+        depth_model = DPTForDepthEstimation.from_pretrained("Intel/dpt-hybrid-midas")
         
-        logger.info("Modèle depth-anything-large chargé avec succès")
+        logger.info("Modèle MiDaS chargé avec succès")
     except Exception as e:
-        logger.warning(f"Erreur lors du chargement de depth-anything: {str(e)}")
-        
-        # Essayer un modèle alternatif plus léger et plus largement disponible
-        try:
-            logger.info("Tentative de chargement du modèle MiDaS comme alternative...")
-            from transformers import DPTForDepthEstimation, DPTImageProcessor
-            
-            # Utiliser MiDaS (plus commun et présent dans plus d'environnements)
-            depth_image_processor = DPTImageProcessor.from_pretrained("Intel/dpt-hybrid-midas")
-            depth_model = DPTForDepthEstimation.from_pretrained("Intel/dpt-hybrid-midas")
-            
-            logger.info("Modèle MiDaS chargé avec succès comme alternative")
-        except Exception as e2:
-            logger.error(f"Impossible de charger un modèle de profondeur alternatif: {str(e2)}")
-            raise RuntimeError("depth_anything") from e2
+        logger.error(f"Impossible de charger le modèle MiDaS: {str(e)}")
+        raise RuntimeError("Aucun modèle de profondeur disponible") from e
     
     # Déplacer le modèle sur GPU si disponible
     if torch.cuda.is_available():

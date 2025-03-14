@@ -232,7 +232,7 @@ def resize_dimensions(dimensions: Tuple[int, int], target_size: int) -> Tuple[in
 def predict(
     image: Path,
     prompt: str,
-    negative_prompt: str = "lowres, watermark, banner, logo, watermark, contactinfo, text, deformed, blurry, blur, out of focus, out of frame, surreal, extra, ugly, upholstered walls, fabric walls, plush walls, mirror, mirrored, functional, realistic",
+    negative_prompt: str = "lowres, watermark, banner, logo, watermark, contactinfo, text, deformed, blurry, blur, out of focus, out of frame, surreal, extra, ugly, upholstered walls, fabric walls, plush walls, mirror, mirrored, functional, realistic, false ceiling, dropped ceiling, suspended ceiling, cove lighting, cornice lighting, accent lighting, crown molding with lights, overhead lighting, coffered ceiling, recessed ceiling",
     num_inference_steps: int = 50,
     guidance_scale: float = 15,
     prompt_strength: float = 0.8,
