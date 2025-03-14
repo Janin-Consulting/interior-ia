@@ -74,32 +74,21 @@ def setup() -> None:
     except Exception as e:
         depth_initialized = False
         logger.warning(f"Impossible d'initialiser le module de profondeur: {str(e)}")
-        # Ne pas propager l'erreur, nous allons continuer sans profondeur
+        logger.warning("Nous allons tout de même utiliser le ControlNet de profondeur avec une carte de profondeur de secours")
     
-    # Charger les controlnets en fonction de la disponibilité de la profondeur
-    if depth_initialized:
-        logger.info("Initialisation des 3 ControlNets (segmentation, MLSD, profondeur)")
-        controlnet = [
-            ControlNetModel.from_pretrained(
-                "BertChristiaens/controlnet-seg-room", torch_dtype=torch.float16
-            ),
-            ControlNetModel.from_pretrained(
-                "lllyasviel/sd-controlnet-mlsd", torch_dtype=torch.float16
-            ),
-            ControlNetModel.from_pretrained(
-                "lllyasviel/sd-controlnet-depth", torch_dtype=torch.float16
-            )
-        ]
-    else:
-        logger.info("Initialisation des 2 ControlNets (segmentation, MLSD) sans profondeur")
-        controlnet = [
-            ControlNetModel.from_pretrained(
-                "BertChristiaens/controlnet-seg-room", torch_dtype=torch.float16
-            ),
-            ControlNetModel.from_pretrained(
-                "lllyasviel/sd-controlnet-mlsd", torch_dtype=torch.float16
-            )
-        ]
+    # Toujours initialiser les 3 ControlNets
+    logger.info("Initialisation des 3 ControlNets (segmentation, MLSD, profondeur)")
+    controlnet = [
+        ControlNetModel.from_pretrained(
+            "BertChristiaens/controlnet-seg-room", torch_dtype=torch.float16
+        ),
+        ControlNetModel.from_pretrained(
+            "lllyasviel/sd-controlnet-mlsd", torch_dtype=torch.float16
+        ),
+        ControlNetModel.from_pretrained(
+            "lllyasviel/sd-controlnet-depth", torch_dtype=torch.float16
+        )
+    ]
 
     pipe = StableDiffusionControlNetInpaintPipeline.from_pretrained(
         "SG161222/Realistic_Vision_V3.0_VAE",
@@ -112,16 +101,7 @@ def setup() -> None:
         pipe.scheduler.config
     )
 
-    # Rendre xformers optionnel
-    try:
-        logger.info("Tentative d'activation des optimisations xformers...")
-        pipe.enable_xformers_memory_efficient_attention()
-        logger.info("Optimisations xformers activées avec succès")
-    except (ModuleNotFoundError, ImportError):
-        logger.warning("xformers n'est pas disponible, utilisation de l'attention standard")
-    except Exception as e:
-        logger.warning(f"Impossible d'activer xformers: {str(e)}")
-    
+    # Déplacer le pipeline sur le GPU
     pipe = pipe.to("cuda")
 
     control_items = [

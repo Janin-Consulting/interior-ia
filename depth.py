@@ -41,25 +41,6 @@ def setup() -> None:
     # Déplacer le modèle sur GPU si disponible
     if torch.cuda.is_available():
         depth_model = depth_model.to("cuda")
-        
-    # Essayer d'activer xformers pour les optimisations de mémoire (si disponible)
-    try:
-        import xformers
-        logger.info("xformers détecté, activation des optimisations de mémoire")
-        # Vérifier si le modèle supporte xformers
-        if hasattr(depth_model, 'enable_xformers_memory_efficient_attention'):
-            depth_model.enable_xformers_memory_efficient_attention()
-        else:
-            logger.info("Ce modèle ne prend pas en charge les optimisations xformers")
-    except (ImportError, AttributeError) as e:
-        logger.info(f"xformers non disponible ({str(e)})")
-        # Utiliser l'attention slicing comme alternative si xformers n'est pas disponible
-        # et si le modèle le supporte
-        if hasattr(depth_model, 'enable_attention_slicing'):
-            logger.info("Activation de l'attention slicing comme alternative")
-            depth_model.enable_attention_slicing()
-        else:
-            logger.info("Ce modèle ne prend pas en charge l'attention slicing")
 
 @torch.inference_mode()
 @torch.autocast("cuda")
