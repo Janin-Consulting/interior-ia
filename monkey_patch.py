@@ -158,6 +158,39 @@ def apply_patches():
                 # Remplacer la fonction originale par notre version patchée
                 timm_models.register_model = patched_register_model
                 logger.info("Patched: timm.models.register_model pour éviter les conflits de registre")
+
+                # En plus du patch général, on applique un patch spécifique pour segment_anything
+                try:
+                    # Précharger tous les modèles problématiques pour éviter les warnings
+                    # Ceci va enregistrer les modèles avant que controlnet_aux ne tente de les réenregistrer
+                    import timm
+                    _ = timm.create_model("tiny_vit_5m_224", pretrained=False)
+                    _ = timm.create_model("tiny_vit_11m_224", pretrained=False)
+                    _ = timm.create_model("tiny_vit_21m_224", pretrained=False)
+                    _ = timm.create_model("tiny_vit_21m_384", pretrained=False)
+                    _ = timm.create_model("tiny_vit_21m_512", pretrained=False)
+                    logger.info("Préchargé les modèles tiny_vit pour éviter les conflits avec SAM")
+                except Exception as e:
+                    logger.warning(f"Erreur lors du préchargement des modèles tiny_vit: {str(e)}")
+                
+                # Patch plus agressif directement sur UserWarning pour supprimer les derniers warnings
+                import warnings
+                
+                # Sauvegarder la fonction d'avertissement originale
+                original_warn = warnings.warn
+                
+                # Créer une fonction wrapper qui filtre les avertissements spécifiques
+                def filtered_warn(message, *args, **kwargs):
+                    # Filtrer les avertissements spécifiques liés aux conflits de registre
+                    if isinstance(message, str) and "Overwriting" in message and "in registry" in message:
+                        # Supprimer silencieusement ces warnings
+                        return
+                    # Pour tous les autres warnings, utiliser la fonction originale
+                    return original_warn(message, *args, **kwargs)
+                
+                # Remplacer la fonction originale par notre version filtrée
+                warnings.warn = filtered_warn
+                logger.info("Patched: warnings.warn pour filtrer les messages de conflit de registre")
     except Exception as e:
         logger.warning(f"Erreur lors du patch de controlnet_aux: {str(e)}")
     

@@ -4,6 +4,7 @@ import random
 import logging
 import torch
 import numpy as np
+import sys
 
 from typing import Tuple, Union, List, Optional
 from pathlib import Path
@@ -396,47 +397,77 @@ def predict(
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description='Générer des images de design d\'intérieur')
-    parser.add_argument('--image', type=str, required=True, help='Chemin de l\'image d\'entrée')
-    parser.add_argument('--prompt', type=str, required=True, help='Texte de prompt pour le design')
-    parser.add_argument('--negative_prompt', type=str, 
-                       default="lowres, watermark, banner, logo, watermark, contactinfo, text, deformed, blurry, blur, out of focus, out of frame, surreal, extra, ugly, upholstered walls, fabric walls, plush walls, mirror, mirrored, functional, realistic",
-                       help='Texte de prompt négatif')
-    parser.add_argument('--num_inference_steps', type=int, default=50, help='Nombre d\'étapes de débruitage')
-    parser.add_argument('--guidance_scale', type=float, default=15, help='Échelle pour le guidage sans classification')
-    parser.add_argument('--prompt_strength', type=float, default=0.8, help='Force du prompt pour l\'inpainting')
-    parser.add_argument('--seed', type=int, default=None, help='Graine aléatoire')
-    parser.add_argument('--depth_weight', type=float, default=0.3, help='Poids pour le contrôle de la profondeur')
-    parser.add_argument('--output', type=str, default="output.png", help='Chemin du fichier de sortie')
+    # Création du parser d'arguments
+    parser = argparse.ArgumentParser(description="Génération d'images basée sur un prompt et une image d'entrée")
     
+    # Arguments principaux
+    parser.add_argument("--image", type=str, required=True, help="Chemin vers l'image d'entrée")
+    parser.add_argument("--output", type=str, required=True, help="Chemin pour sauvegarder l'image générée")
+    parser.add_argument("--prompt", type=str, required=True, help="Prompt décrivant la scène à générer")
+    
+    # Arguments optionnels pour le contrôle de la génération
+    parser.add_argument("--seed", type=int, default=42, help="Graine aléatoire pour la génération (défaut: 42)")
+    parser.add_argument("--strength", type=float, default=0.85, help="Force du prompt (défaut: 0.85)")
+    parser.add_argument("--guidance_scale", type=float, default=9.0, help="Échelle de guidance (défaut: 9.0)")
+    parser.add_argument("--steps", type=int, default=40, help="Nombre d'étapes d'inférence (défaut: 40)")
+    parser.add_argument("--depth_weight", type=float, default=0.3, 
+                       help="Poids de la profondeur pour ControlNet (défaut: 0.3, entre 0 et 1)")
+    parser.add_argument("--verbose", action="store_true", help="Afficher les informations détaillées")
+    
+    # Analyse des arguments
     args = parser.parse_args()
     
-    # Initialiser les modèles
-    logger.info("Initialisation des modèles...")
-    setup()
-    
-    # Exécuter la prédiction
-    logger.info(f"Traitement de l'image: {args.image}")
-    logger.info(f"Prompt: {args.prompt}")
+    # Configuration du niveau de log en fonction de l'option verbose
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logging.debug("Mode verbeux activé")
     
     try:
+        # Chargement des modèles
+        logger.info("Initialisation des modèles...")
+        setup()
+        
+        # Préparation des chemins
         image_path = Path(args.image)
+        output_path = Path(args.output)
+        
+        # Vérification de l'existence du fichier d'entrée
+        if not image_path.exists():
+            logger.error(f"L'image d'entrée n'existe pas: {image_path}")
+            sys.exit(1)
+        
+        # Création du dossier parent pour le fichier de sortie si nécessaire
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Affichage des paramètres pour vérification
+        logger.info(f"Traitement de l'image: {image_path}")
+        logger.info(f"Prompt: {args.prompt}")
+        if args.verbose:
+            logger.debug(f"Paramètres: seed={args.seed}, strength={args.strength}, "
+                        f"guidance_scale={args.guidance_scale}, steps={args.steps}, "
+                        f"depth_weight={args.depth_weight}")
+        
+        # Prédiction
         result_image = predict(
-            image=image_path,
+            image=image_path, 
             prompt=args.prompt,
-            negative_prompt=args.negative_prompt,
-            num_inference_steps=args.num_inference_steps,
-            guidance_scale=args.guidance_scale,
-            prompt_strength=args.prompt_strength,
             seed=args.seed,
+            prompt_strength=args.strength,
+            guidance_scale=args.guidance_scale,
+            num_inference_steps=args.steps,
             depth_weight=args.depth_weight
         )
         
-        # Sauvegarder l'image générée
-        output_path = args.output
+        # Enregistrement de l'image générée
         result_image.save(output_path)
-        
         logger.info(f"Image générée sauvegardée avec succès à: {output_path}")
+    
+    except KeyboardInterrupt:
+        logger.info("Interruption par l'utilisateur")
+        sys.exit(0)
     except Exception as e:
-        logger.error(f"Erreur lors de la prédiction: {str(e)}")
-        raise
+        logger.error(f"Erreur lors de l'exécution: {str(e)}")
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)

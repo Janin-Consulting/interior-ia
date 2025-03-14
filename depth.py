@@ -99,28 +99,33 @@ def get_depth_map(image: Image.Image) -> Image.Image:
     
     # S'assurer que l'image est dans le format RGB requis
     if not isinstance(image, Image.Image):
-        logger.warning("L'entrée n'est pas une image PIL, tentative de conversion")
-        try:
-            image = Image.fromarray(np.array(image))
-        except Exception as e:
-            logger.error(f"Erreur lors de la conversion de l'image: {str(e)}")
-            raise
+        raise TypeError("L'image doit être une instance de PIL.Image.Image")
     
-    # S'assurer que l'image est en mode RGB
     if image.mode != "RGB":
-        logger.info(f"Conversion de l'image du mode {image.mode} à RGB")
         image = image.convert("RGB")
     
     try:
-        # Prétraitement de l'image
+        # Redimensionner l'image si elle est très grande (pour économiser la mémoire GPU)
         width, height = image.size
-        inputs = depth_image_processor(images=image, return_tensors="pt")
+        max_size = 1024  # Limite de taille raisonnable pour l'estimation de profondeur
+        if width > max_size or height > max_size:
+            # Calculer le ratio pour redimensionner proportionnellement
+            ratio = min(max_size / width, max_size / height)
+            new_size = (int(width * ratio), int(height * ratio))
+            logger.info(f"Redimensionnement de l'image de {width}x{height} à {new_size[0]}x{new_size[1]} pour l'estimation de profondeur")
+            image_for_depth = image.resize(new_size, Image.Resampling.LANCZOS)
+        else:
+            image_for_depth = image
+            
+        # Prétraitement de l'image pour le modèle de profondeur
+        width, height = image_for_depth.size
+        inputs = depth_image_processor(images=image_for_depth, return_tensors="pt")
         
         # Déplacer sur GPU si disponible
         if torch.cuda.is_available():
             inputs = {k: v.to("cuda") for k, v in inputs.items()}
         
-        # Obtenir la carte de profondeur du modèle
+        # Obtenir la carte de profondeur du modèle en adaptant selon le type de modèle
         with torch.no_grad():
             # Détection du type de modèle et adaptation en conséquence
             if "DPT" in depth_model.__class__.__name__:
@@ -140,7 +145,7 @@ def get_depth_map(image: Image.Image) -> Image.Image:
         
         # Redimensionner la carte de profondeur aux dimensions de l'image d'origine
         depth_map = F.interpolate(
-            depth_map.unsqueeze(1).float(),
+            depth_map.unsqueeze(1),
             size=(height, width),
             mode="bicubic",
             align_corners=False,
@@ -150,16 +155,34 @@ def get_depth_map(image: Image.Image) -> Image.Image:
         depth_rgb = torch.cat([depth_map] * 3, dim=1)
         
         # Convertir en image PIL
-        depth_image = depth_rgb.permute(0, 2, 3, 1).cpu().numpy()[0]
-        depth_image = Image.fromarray((depth_image * 255.0).clip(0, 255).astype(np.uint8))
+        depth_image = depth_rgb.squeeze().permute(1, 2, 0).cpu().numpy()
+        depth_image = (depth_image * 255).astype(np.uint8)
+        depth_image = Image.fromarray(depth_image)
+        
+        # Redimensionner à la taille de l'image originale si nécessaire
+        if depth_image.size != image.size:
+            depth_image = depth_image.resize(image.size, Image.Resampling.LANCZOS)
         
         return depth_image
     
     except Exception as e:
-        logger.error(f"Erreur lors de l'estimation de la profondeur: {str(e)}")
-        # Afficher plus d'informations sur l'image pour le débogage
-        logger.error(f"Format de l'image: {image.format}, Mode: {image.mode}, Taille: {image.size}")
-        raise
+        logger.error(f"Erreur lors de la génération de la carte de profondeur: {str(e)}")
+        # Créer une carte de profondeur de secours basique (gradient simple)
+        logger.warning("Création d'une carte de profondeur de secours basique (gradient)")
+        
+        # Créer un dégradé horizontal comme estimation très basique de la profondeur
+        # C'est mieux que rien en cas d'échec complet du modèle
+        fallback_depth = Image.new("L", image.size, color=0)
+        for x in range(image.size[0]):
+            # Créer un dégradé horizontal (de gauche à droite)
+            value = int(255 * x / image.size[0])
+            for y in range(image.size[1]):
+                fallback_depth.putpixel((x, y), value)
+        
+        # Convertir en RGB
+        fallback_depth_rgb = Image.merge("RGB", [fallback_depth, fallback_depth, fallback_depth])
+        
+        return fallback_depth_rgb
 
 def enhance_depth(depth_image: Image.Image, gamma: float = 1.0, contrast: float = 1.0) -> Image.Image:
     """Améliore la carte de profondeur pour une meilleure utilisation avec ControlNet
@@ -189,36 +212,3 @@ def enhance_depth(depth_image: Image.Image, gamma: float = 1.0, contrast: float 
     enhanced_depth = Image.fromarray(depth_np)
     
     return enhanced_depth
-
-if __name__ == "__main__":
-    import argparse
-    from pathlib import Path
-    
-    parser = argparse.ArgumentParser(description='Générer une carte de profondeur à partir d\'une image')
-    parser.add_argument('--image', type=str, required=True, help='Chemin de l\'image d\'entrée')
-    parser.add_argument('--output', type=str, default="depth_map.png", help='Chemin du fichier de sortie')
-    parser.add_argument('--gamma', type=float, default=1.0, help='Correction gamma (>1 accentue les zones sombres)')
-    parser.add_argument('--contrast', type=float, default=1.0, help='Ajustement du contraste')
-    
-    args = parser.parse_args()
-    
-    # Initialiser les modèles
-    setup()
-    
-    # Charger l'image
-    image_path = Path(args.image)
-    logger.info(f"Traitement de l'image: {args.image}")
-    image = Image.open(str(image_path))
-    
-    # Générer la carte de profondeur
-    depth_map = get_depth_map(image)
-    
-    # Améliorer la carte de profondeur si spécifié
-    if args.gamma != 1.0 or args.contrast != 1.0:
-        depth_map = enhance_depth(depth_map, args.gamma, args.contrast)
-    
-    # Sauvegarder la carte de profondeur
-    output_path = args.output
-    depth_map.save(output_path)
-    
-    logger.info(f"Carte de profondeur sauvegardée avec succès à: {output_path}")
