@@ -254,45 +254,47 @@ def predict(
     unique_colors = np.unique(real_seg.reshape(-1, real_seg.shape[2]), axis=0)
     unique_colors = [tuple(color) for color in unique_colors]
     segment_items = [map_colors_to_rgb(i) for i in unique_colors]
-    chosen_colors, segment_items = filter_items(
-        colors_list=unique_colors,
-        items_list=segment_items,
-        items_to_remove=control_items,
-    )
     
-    # Créer le masque pour l'inpainting
-    mask = np.zeros_like(real_seg)
-    for color in chosen_colors:
-        color_matches = (real_seg == color).all(axis=2)
-        mask[color_matches] = 1
+    # Identifier spécifiquement les éléments architecturaux à préserver (en utilisant les codes couleurs exacts)
+    # Codes couleurs provenant de colors.py
+    architectural_elements = {
+        (120, 120, 120): "wall",           # #787878
+        (120, 120, 80): "ceiling",         # #787850
+        (8, 255, 51): "door;double;door",  # #08FF33
+        (230, 230, 230): "windowpane;window" # #E6E6E6
+    }
     
-    # S'assurer que nous avons un masque suffisant pour placer des meubles
-    # Si le masque est trop petit ou inexistant, créer un masque central
-    if np.sum(mask) < (mask.shape[0] * mask.shape[1] * 0.2):  # Si moins de 20% de l'image est masquée
-        logger.info("Masque trop petit, création d'un masque central pour placer des meubles")
-        # Créer un masque uniquement pour le sol (bas de l'image) pour y placer un lit
-        h, w = mask.shape[:2]
-        
-        # Déterminer la hauteur du masque (environ 30% du bas de l'image)
-        floor_height = int(h * 0.3)
-        # Commencer à environ 60% de la hauteur de l'image
-        start_y = int(h * 0.6)
-        
-        # Créer un masque pour le sol uniquement
-        floor_mask = np.zeros_like(mask)
-        floor_mask[start_y:start_y+floor_height, int(w*0.2):int(w*0.8)] = 1
-        
-        # Utiliser uniquement ce masque pour le sol
-        mask = floor_mask
-        
-        logger.info("Masque créé uniquement pour le sol, afin de placer un lit sans modifier les murs/plafond")
+    # Créer un masque d'exclusion pour les éléments architecturaux (inverted mask)
+    structural_mask = np.zeros_like(real_seg)[:,:,0]
+    
+    # Mettre à 1 tous les pixels correspondant aux éléments architecturaux
+    for color, name in architectural_elements.items():
+        color_array = np.array(color)
+        # Chercher les pixels qui correspondent à cette couleur
+        matches = np.all(real_seg == color_array, axis=2)
+        structural_mask[matches] = 1
+        logger.info(f"Éléments architecturaux détectés: {name}")
+    
+    # Inverser le masque pour obtenir uniquement les zones non-architecturales (sol et intérieur)
+    non_structural_mask = 1 - structural_mask
+    
+    # Créer un masque de sol dans le tiers inférieur de l'image
+    h, w = real_seg.shape[:2]
+    floor_mask = np.zeros_like(non_structural_mask)
+    # Zone de sol: tiers inférieur de l'image, centré horizontalement
+    floor_mask[int(h*0.65):int(h*0.9), int(w*0.25):int(w*0.75)] = 1
+    
+    # Masque final: intersection du masque non-structural et du masque de sol
+    # Cela donne uniquement la zone du sol qui n'est pas un élément architectural
+    final_mask = floor_mask & non_structural_mask
     
     # Préparer les images pour l'inpainting
     image_np = np.array(input_image)
     image = Image.fromarray(image_np).convert("RGB")
-    segmentation_cond_image = Image.fromarray(real_seg).convert("RGB")
-    mask_image = Image.fromarray((mask * 255).astype(np.uint8)).convert("RGB")
-
+    mask_image = Image.fromarray((final_mask * 255).astype(np.uint8)).convert("RGB")
+    
+    logger.info("Masque créé uniquement pour la zone centrale du sol, excluant spécifiquement murs et plafond")
+    
     # Prétraitement pour mlsd controlnet
     mlsd_img = mlsd_processor(input_image)
     mlsd_img = mlsd_img.resize(image.size)
@@ -346,7 +348,7 @@ def predict(
         generator=[torch.Generator(device="cuda").manual_seed(seed)],
         image=image,
         mask_image=mask_image,
-        control_image=[segmentation_cond_image, mlsd_img, depth_img],
+        control_image=[segment_image(input_image), mlsd_img, depth_img],
         controlnet_conditioning_scale=[seg_weight, mlsd_weight, depth_weight],
         control_guidance_start=[0, 0.1, 0.05],
         control_guidance_end=[0.5, 0.25, 0.6],
