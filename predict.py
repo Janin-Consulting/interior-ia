@@ -238,14 +238,6 @@ def predict(
         seed = random.randint(0, 65535)
         
     img = Image.open(str(image))
-    
-    # Enrichir les prompts pour certains types de pièces
-    if "bedroom" in prompt and "bed " not in prompt:
-        # Spécifier un type de lit traditionnel, pas japonais ou plateforme
-        prompt += ", with a traditional queen size bed with headboard and frame, not a platform bed, not a low bed, not a Japanese style bed"
-    elif "children room" in prompt or "children's room" in prompt:
-        if "bed " not in prompt:
-            prompt += ", with a twin bed against the wall"
 
     # Renforcer les contraintes d'arrangement des meubles
     prompt += ", with furniture neatly arranged without overlapping, well-spaced, logical furniture placement, simple flat white ceiling"
@@ -273,7 +265,24 @@ def predict(
     for color in chosen_colors:
         color_matches = (real_seg == color).all(axis=2)
         mask[color_matches] = 1
-
+    
+    # S'assurer que nous avons un masque suffisant pour placer des meubles
+    # Si le masque est trop petit ou inexistant, créer un masque central
+    if np.sum(mask) < (mask.shape[0] * mask.shape[1] * 0.2):  # Si moins de 20% de l'image est masquée
+        logger.info("Masque trop petit, création d'un masque central pour placer des meubles")
+        # Créer un masque central (40% de la surface au centre de l'image)
+        h, w = mask.shape[:2]
+        center_h, center_w = h // 2, w // 2
+        size_h, size_w = int(h * 0.4), int(w * 0.4)
+        y1, y2 = center_h - size_h // 2, center_h + size_h // 2
+        x1, x2 = center_w - size_w // 2, center_w + size_w // 2
+        
+        # Appliquer le masque central
+        center_mask = np.zeros_like(mask)
+        center_mask[y1:y2, x1:x2] = 1
+        # Combiner avec le masque existant
+        mask = np.maximum(mask, center_mask)
+    
     # Préparer les images pour l'inpainting
     image_np = np.array(input_image)
     image = Image.fromarray(image_np).convert("RGB")
