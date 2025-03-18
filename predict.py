@@ -208,7 +208,7 @@ def resize_dimensions(dimensions: Tuple[int, int], target_size: int) -> Tuple[in
 def predict(
     image: Path,
     prompt: str,
-    negative_prompt: str = "lowres, watermark, banner, logo, watermark, contactinfo, text, deformed, blurry, blur, out of focus, out of frame, surreal, extra, ugly, upholstered walls, fabric walls, plush walls, mirror, mirrored, functional, realistic, false ceiling, dropped ceiling, suspended ceiling, cove lighting, cornice lighting, accent lighting, crown molding with lights, overhead lighting, coffered ceiling, recessed ceiling, overlapping furniture, cluttered room, wardrobes, cabinets that don't make sense, chaotic arrangement",
+    negative_prompt: str = "lowres, watermark, banner, logo, watermark, contactinfo, text, deformed, blurry, blur, out of focus, out of frame, surreal, extra, ugly, upholstered walls, fabric walls, plush walls, mirror, mirrored, functional, realistic, false ceiling, dropped ceiling, suspended ceiling, cove lighting, cornice lighting, accent lighting, crown molding with lights, overhead lighting, coffered ceiling, recessed ceiling, overlapping furniture, cluttered room, wardrobes, cabinets that don't make sense, chaotic arrangement, ceiling details, ceiling ornaments, complex ceiling, ceiling panels, ceiling tiles, decorative ceiling, chandelier, fancy lighting fixtures",
     num_inference_steps: int = 75,
     guidance_scale: float = 15,
     prompt_strength: float = 0.8,
@@ -247,7 +247,7 @@ def predict(
             prompt += ", with a twin bed against the wall"
 
     # Renforcer les contraintes d'arrangement des meubles
-    prompt += ", with furniture neatly arranged without overlapping, well-spaced, logical furniture placement"
+    prompt += ", with furniture neatly arranged without overlapping, well-spaced, logical furniture placement, simple flat white ceiling"
 
     pos_prompt = prompt + f", {additional_quality_suffix}"
 
