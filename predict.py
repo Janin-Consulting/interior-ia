@@ -1,4 +1,4 @@
-# python predict.py --image "empty_room_input/image.png" --output result.png --prompt "living room, modern style" --depth_weight 0.3
+# python predict.py --image "empty_room_input/image-01.jpg" --output result.png --prompt "bedroom, modern style with a queen size bed and two dressers against the walls" --depth_weight 0.3
 
 import random
 import logging
@@ -209,7 +209,7 @@ def predict(
     image: Path,
     prompt: str,
     negative_prompt: str = "lowres, watermark, banner, logo, watermark, contactinfo, text, deformed, blurry, blur, out of focus, out of frame, surreal, extra, ugly, upholstered walls, fabric walls, plush walls, mirror, mirrored, functional, realistic, false ceiling, dropped ceiling, suspended ceiling, cove lighting, cornice lighting, accent lighting, crown molding with lights, overhead lighting, coffered ceiling, recessed ceiling",
-    num_inference_steps: int = 50,
+    num_inference_steps: int = 75,
     guidance_scale: float = 15,
     prompt_strength: float = 0.8,
     seed: Optional[int] = None,
@@ -361,7 +361,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42, help="Graine aléatoire pour la génération (défaut: 42)")
     parser.add_argument("--strength", type=float, default=0.85, help="Force du prompt (défaut: 0.85)")
     parser.add_argument("--guidance_scale", type=float, default=9.0, help="Échelle de guidance (défaut: 9.0)")
-    parser.add_argument("--steps", type=int, default=40, help="Nombre d'étapes d'inférence (défaut: 40)")
+    parser.add_argument("--steps", type=int, default=75, help="Nombre d'étapes d'inférence (défaut: 75)")
     parser.add_argument("--depth_weight", type=float, default=0.3, 
                        help="Poids de la profondeur pour ControlNet (défaut: 0.3, entre 0 et 1)")
     parser.add_argument("--verbose", action="store_true", help="Afficher les informations détaillées")
