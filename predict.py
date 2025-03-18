@@ -270,18 +270,22 @@ def predict(
     # Si le masque est trop petit ou inexistant, créer un masque central
     if np.sum(mask) < (mask.shape[0] * mask.shape[1] * 0.2):  # Si moins de 20% de l'image est masquée
         logger.info("Masque trop petit, création d'un masque central pour placer des meubles")
-        # Créer un masque central (40% de la surface au centre de l'image)
+        # Créer un masque uniquement pour le sol (bas de l'image) pour y placer un lit
         h, w = mask.shape[:2]
-        center_h, center_w = h // 2, w // 2
-        size_h, size_w = int(h * 0.4), int(w * 0.4)
-        y1, y2 = center_h - size_h // 2, center_h + size_h // 2
-        x1, x2 = center_w - size_w // 2, center_w + size_w // 2
         
-        # Appliquer le masque central
-        center_mask = np.zeros_like(mask)
-        center_mask[y1:y2, x1:x2] = 1
-        # Combiner avec le masque existant
-        mask = np.maximum(mask, center_mask)
+        # Déterminer la hauteur du masque (environ 30% du bas de l'image)
+        floor_height = int(h * 0.3)
+        # Commencer à environ 60% de la hauteur de l'image
+        start_y = int(h * 0.6)
+        
+        # Créer un masque pour le sol uniquement
+        floor_mask = np.zeros_like(mask)
+        floor_mask[start_y:start_y+floor_height, int(w*0.2):int(w*0.8)] = 1
+        
+        # Utiliser uniquement ce masque pour le sol
+        mask = floor_mask
+        
+        logger.info("Masque créé uniquement pour le sol, afin de placer un lit sans modifier les murs/plafond")
     
     # Préparer les images pour l'inpainting
     image_np = np.array(input_image)
