@@ -305,6 +305,29 @@ def predict(
     # Générer une carte de profondeur
     logger.info("Génération de la carte de profondeur...")
     depth_img = get_depth_map(image)
+    depth_img = np.array(depth_img)
+    
+    # Ajouter un "rehaussement" artificiel de la profondeur dans la zone où devrait être le lit
+    # Cela aide le modèle à comprendre qu'il faut placer un objet 3D en hauteur à cet endroit
+    h, w = depth_img.shape[:2]
+    # Zone centrale où sera placé le lit
+    bed_area_y_start = int(h * 0.5)
+    bed_area_y_end = int(h * 0.8)
+    bed_area_x_start = int(w * 0.3)
+    bed_area_x_end = int(w * 0.7)
+    
+    # Créer un gradient de profondeur qui simule un objet 3D (valeurs plus claires)
+    # Cela "trompe" le modèle de profondeur pour l'inciter à générer un objet en relief
+    depth_multiplier = 1.25  # augmenter la profondeur dans cette zone
+    depth_img[bed_area_y_start:bed_area_y_end, bed_area_x_start:bed_area_x_end] *= depth_multiplier
+    
+    # Normaliser à nouveau la carte de profondeur
+    depth_img = (depth_img - depth_img.min()) / (depth_img.max() - depth_img.min())
+    
+    logger.info("Carte de profondeur modifiée pour encourager un lit avec volume 3D")
+    
+    depth_img = Image.fromarray((depth_img * 255).astype(np.uint8))
+    depth_img = depth_img.convert("RGB")
     
     # Calculer les poids optimaux des ControlNets en fonction du ratio d'aspect de l'image
     aspect_ratio = orig_w / orig_h
