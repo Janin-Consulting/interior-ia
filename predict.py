@@ -278,11 +278,14 @@ def predict(
     # Inverser le masque pour obtenir uniquement les zones non-architecturales (sol et intérieur)
     non_structural_mask = 1 - structural_mask
     
-    # Créer un masque de sol dans le tiers inférieur de l'image
+    # Créer un masque de sol plus haut qui monte plus dans l'image
     h, w = real_seg.shape[:2]
     floor_mask = np.zeros_like(non_structural_mask)
-    # Zone de sol: tiers inférieur de l'image, centré horizontalement
-    floor_mask[int(h*0.65):int(h*0.9), int(w*0.25):int(w*0.75)] = 1
+    
+    # Zone du sol étendue verticalement: monte jusqu'à mi-hauteur de l'image
+    # Nous commençons un peu plus haut (45% de la hauteur) et descendons jusqu'à 90%
+    # Cela donne de l'espace au modèle pour générer un lit avec sa hauteur naturelle
+    floor_mask[int(h*0.45):int(h*0.9), int(w*0.25):int(w*0.75)] = 1
     
     # Masque final: intersection du masque non-structural et du masque de sol
     # Cela donne uniquement la zone du sol qui n'est pas un élément architectural
