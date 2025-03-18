@@ -1,4 +1,4 @@
-# python predict.py --image "empty_room_input/image-01.jpg" --output result.png --prompt "bedroom, modern style with a queen size bed and two dressers against the walls" --depth_weight 0.3
+# python predict.py --image "empty_room_input/image-01.jpg" --output result.png --prompt "bedroom, modern style with exactly one queen size bed centered on the wall and exactly two dressers placed neatly against opposite walls, no wardrobes, no overlapping furniture" --depth_weight 0.4 --guidance_scale 12 --verbose
 
 import random
 import logging
@@ -208,7 +208,7 @@ def resize_dimensions(dimensions: Tuple[int, int], target_size: int) -> Tuple[in
 def predict(
     image: Path,
     prompt: str,
-    negative_prompt: str = "lowres, watermark, banner, logo, watermark, contactinfo, text, deformed, blurry, blur, out of focus, out of frame, surreal, extra, ugly, upholstered walls, fabric walls, plush walls, mirror, mirrored, functional, realistic, false ceiling, dropped ceiling, suspended ceiling, cove lighting, cornice lighting, accent lighting, crown molding with lights, overhead lighting, coffered ceiling, recessed ceiling",
+    negative_prompt: str = "lowres, watermark, banner, logo, watermark, contactinfo, text, deformed, blurry, blur, out of focus, out of frame, surreal, extra, ugly, upholstered walls, fabric walls, plush walls, mirror, mirrored, functional, realistic, false ceiling, dropped ceiling, suspended ceiling, cove lighting, cornice lighting, accent lighting, crown molding with lights, overhead lighting, coffered ceiling, recessed ceiling, overlapping furniture, cluttered room, wardrobes, cabinets that don't make sense, chaotic arrangement",
     num_inference_steps: int = 75,
     guidance_scale: float = 15,
     prompt_strength: float = 0.8,
@@ -241,10 +241,13 @@ def predict(
     
     # Enrichir les prompts pour certains types de pièces
     if "bedroom" in prompt and "bed " not in prompt:
-        prompt += ", with a queen size bed against the wall"
+        prompt += ", with a queen size bed centered against the wall"
     elif "children room" in prompt or "children's room" in prompt:
         if "bed " not in prompt:
             prompt += ", with a twin bed against the wall"
+
+    # Renforcer les contraintes d'arrangement des meubles
+    prompt += ", with furniture neatly arranged without overlapping, well-spaced, logical furniture placement"
 
     pos_prompt = prompt + f", {additional_quality_suffix}"
 
