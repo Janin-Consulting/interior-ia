@@ -241,7 +241,8 @@ def predict(
     
     # Enrichir les prompts pour certains types de pièces
     if "bedroom" in prompt and "bed " not in prompt:
-        prompt += ", with a queen size bed centered against the wall"
+        # Spécifier un type de lit traditionnel, pas japonais ou plateforme
+        prompt += ", with a traditional queen size bed with headboard and frame, not a platform bed, not a low bed, not a Japanese style bed"
     elif "children room" in prompt or "children's room" in prompt:
         if "bed " not in prompt:
             prompt += ", with a twin bed against the wall"
